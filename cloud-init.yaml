@@ -1,0 +1,77 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - htop
+  - jq
+  - net-tools
+  - fail2ban    # brute-force protection for SSH (dynamic IP — no CIDR restriction)
+  - open-iscsi  # required by CSI storage providers (e.g. Longhorn)
+
+runcmd:
+  # ------------------------------------------------------------------
+  # SSH hardening — disable password auth, root login, and challenge-response.
+  # fail2ban handles repeated failed attempts (5 tries → 1h ban).
+  # ------------------------------------------------------------------
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - systemctl reload ssh
+
+  # ------------------------------------------------------------------
+  # fail2ban — SSH brute-force protection.
+  # ------------------------------------------------------------------
+  - |
+    cat > /etc/fail2ban/jail.local << 'EOF'
+    [sshd]
+    enabled  = true
+    port     = ssh
+    maxretry = 5
+    bantime  = 3600
+    findtime = 600
+    EOF
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # ------------------------------------------------------------------
+  # k3s — lightweight Kubernetes (single-node, ARM compatible).
+  # API server bound to localhost only — access via SSH tunnel:
+  #   ssh -L 6443:localhost:6443 ubuntu@<public-ip>
+  #
+  # Traefik Ingress Controller is included with k3s by default.
+  # It listens on ports 80 and 443 — the only ports exposed externally.
+  # Deploy services with an Ingress resource instead of NodePort.
+  # ------------------------------------------------------------------
+  - curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644 --bind-address 127.0.0.1
+
+  # Make kubeconfig accessible to the ubuntu user without sudo
+  - mkdir -p /home/ubuntu/.kube
+  - sh -c 'until [ -f /etc/rancher/k3s/k3s.yaml ]; do sleep 2; done'
+  - cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+  - chown -R ubuntu:ubuntu /home/ubuntu/.kube
+  - echo 'export KUBECONFIG=/home/ubuntu/.kube/config' >> /home/ubuntu/.bashrc
+  - echo 'alias k=kubectl' >> /home/ubuntu/.bashrc
+  - echo 'source <(kubectl completion bash)' >> /home/ubuntu/.bashrc
+
+  # ------------------------------------------------------------------
+  # UFW — internal host firewall (mirrors the OCI Security List).
+  #   22   : SSH
+  #   80   : Traefik HTTP
+  #   443  : Traefik HTTPS
+  #   10250: kubelet (internal)
+  #   8472 : Flannel VXLAN CNI (internal)
+  #
+  # 6443 (k3s API) and 30000-32767 (NodePorts) intentionally NOT opened.
+  # ------------------------------------------------------------------
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 10250/tcp
+  - ufw allow 8472/udp
+  - ufw --force enable
+
+final_message: "vm-infra ready after $UPTIME seconds. k3s running with Traefik Ingress on 80/443. SSH key-only auth + fail2ban active."

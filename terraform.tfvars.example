@@ -1,0 +1,17 @@
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaaaaaa..."
+user_ocid        = "ocid1.user.oc1..aaaaaaaa..."
+fingerprint      = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "sa-saopaulo-1"
+
+# Can be the same as tenancy_ocid (root compartment)
+compartment_ocid = "ocid1.tenancy.oc1..aaaaaaaa..."
+
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+budget_alert_email = "your-email@example.com"
+
+# Stay within Always Free limits (2 OCPU / 12 GB total, 2026)
+infra_vm_ocpus          = 2
+infra_vm_memory_gb      = 12
+infra_vm_boot_volume_gb = 50
